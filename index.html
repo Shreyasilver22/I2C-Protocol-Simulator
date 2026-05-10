@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>I²C Protocol Simulator & Logic Analyzer — Industrial Edition</title>
+  <meta name="description" content="Professional browser-based I²C Protocol Simulator with Bus Scanner, Device Library (8 devices), Timing Violation Checker, and Logic Analyzer waveform view." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ══════════════════ TITLE BAR ══════════════════ -->
+  <header class="title-bar" role="banner">
+    <div class="title-bar__left">
+      <div class="title-bar__logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7v10l10 5 10-5V7L12 2z" stroke="#58a6ff" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M12 2v20M2 7l10 5 10-5" stroke="#58a6ff" stroke-width="1.5"/>
+        </svg>
+        <span class="title-bar__product">I²C Protocol Simulator</span>
+        <span class="title-bar__version">v3.0 Industrial</span>
+      </div>
+      <nav class="title-bar__nav">
+        <span class="nav-item active">Analyzer</span>
+        <span class="nav-item" onclick="openScanModal(); startBusScan()">Bus Scan</span>
+      </nav>
+    </div>
+    <div class="title-bar__right">
+      <div class="status-indicator" id="bus-status-indicator">
+        <span class="status-dot status-dot--idle"></span>
+        <span id="bus-status-text">Bus Idle</span>
+      </div>
+      <div class="clock-badge" id="clock-freq-badge">100 kHz STD</div>
+    </div>
+  </header>
+
+  <!-- ══════════════════ MAIN IDE LAYOUT ══════════════════ -->
+  <main class="ide-layout" role="main">
+
+    <!-- ────────── LEFT SIDEBAR ────────── -->
+    <aside class="sidebar sidebar--left" id="left-sidebar" aria-label="Configuration Panel">
+
+      <!-- Configuration Panel -->
+      <section class="panel" id="panel-config">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M12 2v2M12 20v2M2 12h2M20 12h2M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41"/></svg>
+          <span>Configuration</span>
+        </div>
+        <div class="panel__body">
+
+          <div class="form-group">
+            <label class="form-label" for="addr-input">Target Address (Hex)</label>
+            <div class="input-hex-wrap">
+              <span class="input-prefix">0x</span>
+              <input type="text" id="addr-input" class="form-input form-input--hex" value="50" maxlength="2" spellcheck="false" autocomplete="off" aria-label="Target I2C address" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Operation Mode</label>
+            <div class="toggle-group" role="radiogroup" aria-label="Operation Mode">
+              <button class="toggle-btn toggle-btn--active" id="btn-write" role="radio" aria-checked="true" onclick="setMode('WRITE')">WRITE</button>
+              <button class="toggle-btn" id="btn-read" role="radio" aria-checked="false" onclick="setMode('READ')">READ</button>
+            </div>
+          </div>
+
+          <div class="form-group" id="data-group">
+            <label class="form-label" for="data-input">Data Payload (Hex bytes)</label>
+            <input type="text" id="data-input" class="form-input" value="A5 3F" spellcheck="false" autocomplete="off" placeholder="e.g. A5 3F FF" />
+            <span class="form-hint">Space-separated hex bytes</span>
+          </div>
+
+          <div class="form-group" id="reg-group">
+            <label class="form-label" for="reg-input">Register Address (Hex)</label>
+            <div class="input-hex-wrap">
+              <span class="input-prefix">0x</span>
+              <input type="text" id="reg-input" class="form-input form-input--hex" value="00" maxlength="2" spellcheck="false" autocomplete="off" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Clock Frequency</label>
+            <div class="toggle-group" role="radiogroup" aria-label="Clock Frequency">
+              <button class="toggle-btn toggle-btn--active" id="btn-std" role="radio" aria-checked="true" onclick="setFreq(100000)">100 kHz</button>
+              <button class="toggle-btn" id="btn-fast" role="radio" aria-checked="false" onclick="setFreq(400000)">400 kHz</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Active Bus Devices Panel -->
+      <section class="panel" id="panel-devices">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span>Bus Devices</span>
+        </div>
+        <div class="panel__body panel__body--devices" id="panel-devices-body">
+          <!-- Built dynamically by buildActiveDeviceCards() -->
+        </div>
+      </section>
+
+      <!-- Execution Controls -->
+      <section class="panel" id="panel-controls">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>
+          <span>Execution</span>
+        </div>
+        <div class="panel__body">
+          <div class="exec-buttons">
+            <button class="exec-btn exec-btn--start" id="btn-start" onclick="startTransaction()" aria-label="Start I2C Transaction">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+              Transmit
+            </button>
+            <button class="exec-btn exec-btn--pause" id="btn-pause" onclick="pauseTransaction()" disabled aria-label="Pause Transaction">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              Pause
+            </button>
+          </div>
+          <div class="exec-buttons" style="margin-top:6px">
+            <button class="exec-btn exec-btn--scan" id="btn-scan" onclick="openScanModal(); startBusScan()" aria-label="Scan Bus">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              Scan Bus
+            </button>
+            <button class="exec-btn exec-btn--reset" id="btn-reset" onclick="resetAll()" aria-label="Reset Simulation">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+              Reset
+            </button>
+          </div>
+          <div class="speed-control">
+            <label class="form-label" for="speed-slider">Simulation Speed</label>
+            <input type="range" id="speed-slider" min="1" max="10" value="5" class="speed-slider" oninput="setSpeed(this.value)" />
+            <div class="speed-labels"><span>Slow</span><span id="speed-value">5x</span><span>Fast</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Device Library Panel -->
+      <section class="panel" id="panel-library">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>Device Library</span>
+        </div>
+        <div class="panel__body" style="padding:8px">
+          <div id="device-library-list"><!-- Built by buildDeviceLibraryPanel() --></div>
+          <p class="form-hint" style="margin-top:6px">Toggle devices on/off the bus. Address conflicts are blocked.</p>
+        </div>
+      </section>
+
+      <!-- Timing Violations Panel -->
+      <section class="panel" id="panel-timing">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>Timing Checker</span>
+          <span class="timing-badge" id="timing-badge">—</span>
+        </div>
+        <div class="panel__body" style="padding:8px; gap:4px">
+          <div id="timing-violations-list"></div>
+        </div>
+      </section>
+
+      <!-- Demo Scenarios Panel -->
+      <section class="panel" id="panel-demos">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/><rect x="3" y="1" width="18" height="22" rx="2" fill="none"/></svg>
+          <span>Demo Scenarios</span>
+          <span class="demo-count-badge">10 demos</span>
+        </div>
+        <div class="panel__body" style="padding:8px; gap:6px; max-height:300px; overflow-y:auto">
+          <div id="demo-scenarios-list"><!-- Built by buildDemoPanel() --></div>
+        </div>
+      </section>
+
+      <!-- Fault Injection Panel -->
+      <section class="panel" id="panel-fault">
+        <div class="panel__header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <span>Fault Injection</span>
+          <span class="fault-status" id="fault-status">Disarmed</span>
+        </div>
+        <div class="panel__body" style="gap:8px">
+          <div class="form-group">
+            <label class="form-label" for="fault-type-select">Fault Type</label>
+            <select id="fault-type-select" class="form-input" style="cursor:pointer">
+              <option value="">-- Select fault type --</option>
+            </select>
+          </div>
+          <div id="fault-params"></div>
+          <div class="exec-buttons" style="margin-top:4px">
+            <button class="exec-btn exec-btn--fault-arm" id="btn-arm-fault" onclick="armFault()">
+              ⚡ Arm
+            </button>
+            <button class="exec-btn exec-btn--fault-disarm" id="btn-disarm-fault" onclick="disarmFault()" disabled>
+              ■ Disarm
+            </button>
+          </div>
+          <p class="form-hint">Arm a fault, then click Transmit. The fault fires automatically during the next transaction.</p>
+        </div>
+      </section>
+
+    </aside>
+
+    <!-- ────────── CENTER WORKSPACE ────────── -->
+    <section class="workspace" aria-label="Logic Analyzer Waveform View">
+
+      <!-- Toolbar -->
+      <div class="workspace__toolbar">
+        <div class="toolbar-left">
+          <span class="toolbar-label">LOGIC ANALYZER :: I²C BUS 0</span>
+          <div class="decode-badges" id="decode-badges"></div>
+        </div>
+        <div class="toolbar-right">
+          <button class="icon-btn" id="btn-zoom-in" title="Zoom In" onclick="zoomIn()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M11 8v6M8 11h6"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-zoom-out" title="Zoom Out" onclick="zoomOut()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35M8 11h6"/></svg>
+          </button>
+          <button class="icon-btn" id="btn-export" title="Export PNG" onclick="exportWaveform()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Signal Labels + Canvas -->
+      <div class="canvas-container">
+        <div class="signal-labels">
+          <div class="signal-label signal-label--scl">
+            <span class="signal-label__indicator" style="background:#d2a8ff"></span>SCL
+          </div>
+          <div class="signal-label signal-label--sda">
+            <span class="signal-label__indicator" style="background:#58a6ff"></span>SDA
+          </div>
+        </div>
+        <div class="canvas-wrapper">
+          <canvas id="waveformCanvas" aria-label="I2C waveform display"></canvas>
+          <div class="canvas-idle-overlay" id="canvas-overlay">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#58a6ff" stroke-width="1" opacity="0.4"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <p>Awaiting transaction — press <strong>Transmit</strong> or <strong>Scan Bus</strong></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Protocol Decode Bar -->
+      <div class="decode-bar" id="decode-bar">
+        <div class="decode-bar__label">DECODE</div>
+        <div class="decode-bar__track" id="decode-track"></div>
+      </div>
+
+      <!-- Bit Legend -->
+      <div class="bit-legend">
+        <span class="legend-item"><span class="legend-dot" style="background:#f85149"></span>START / STOP</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#d2a8ff"></span>Address Byte</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#ffa657"></span>Data Byte</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#3fb950"></span>ACK</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f85149"></span>NACK</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#e3b341"></span>⚠ Timing Viol.</span>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ══════════════════ BOTTOM TERMINAL ══════════════════ -->
+  <footer class="terminal-panel" id="terminal-panel" aria-label="Communication Log">
+    <div class="terminal-header">
+      <div class="terminal-header__left">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        <span>COMMUNICATION LOG</span>
+        <span class="terminal-count" id="log-count">0 events</span>
+      </div>
+      <div class="terminal-header__right">
+        <button class="icon-btn" onclick="clearLog()" title="Clear Log">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+        <button class="icon-btn" onclick="toggleTerminal()" title="Collapse">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="terminal-arrow"><polyline points="18 15 12 9 6 15"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="terminal-body" id="terminal-body">
+      <div class="terminal-output" id="terminal-output" role="log" aria-live="polite"></div>
+    </div>
+  </footer>
+
+  <!-- ══════════════════ BUS SCAN MODAL ══════════════════ -->
+  <div class="modal-backdrop" id="scan-modal" role="dialog" aria-modal="true" aria-label="Bus Scanner">
+    <div class="modal">
+      <div class="modal__header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <span>I²C Bus Scanner — Address Map 0x03–0x77</span>
+        <button class="modal__close" onclick="closeScanModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="modal__body">
+        <div class="scan-legend">
+          <span class="scan-legend-item"><span class="scan-swatch scan-swatch--found"></span>Device found (ACK)</span>
+          <span class="scan-legend-item"><span class="scan-swatch scan-swatch--empty"></span>No response (NACK)</span>
+          <span class="scan-legend-item"><span class="scan-swatch scan-swatch--reserved"></span>Reserved</span>
+          <span class="scan-legend-item"><span class="scan-swatch scan-swatch--probing"></span>Probing…</span>
+        </div>
+        <div class="scan-grid" id="scan-grid"></div>
+        <div class="scan-summary" id="scan-summary">Initializing scanner…</div>
+      </div>
+      <div class="modal__footer">
+        <button class="exec-btn exec-btn--reset" onclick="abortScan(); closeScanModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ TOOLTIP ══════════════════ -->
+  <div class="tooltip" id="canvas-tooltip" role="tooltip"></div>
+
+  <script src="engine.js"></script>
+  <script src="devices.js"></script>
+  <script src="timing-checker.js"></script>
+  <script src="fault-injector.js"></script>
+  <script src="demos.js"></script>
+  <script src="renderer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
